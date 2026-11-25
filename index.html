@@ -88,7 +88,10 @@ nav button.on{background:#fffdf7;border:2px solid var(--line);color:var(--ink);f
     <p class="muted" id="h-of" style="color:var(--caramel);margin-bottom:12px"></p>
     <div class="bar" style="position:relative;overflow:visible"><i id="h-bar"></i><span id="h-rider" style="position:absolute;top:-9px"></span></div>
   </div>
-  <button class="wide" data-go="log" style="margin-bottom:12px">+ Log a spend</button>
+  <div class="grid2" style="margin-bottom:12px">
+    <button id="h-paste" style="background:var(--good)">Paste &amp; log</button>
+    <button data-go="log">+ Log a spend</button>
+  </div>
   <div class="grid3" id="h-pockets" style="margin-bottom:12px"></div>
   <div class="card row" id="h-card" style="position:relative"></div>
   <div class="card" id="h-up"><div class="row"><b>Coming up</b><span class="muted">tap &#10003; when done</span></div><div id="h-up-list"></div></div>
@@ -249,7 +252,7 @@ const CATS = [
   {id:'classes', name:'Classes & friends'},
   {id:'health', name:'Health'},
   {id:'gifts', name:'Gifts & unplanned'},
-  {id:'fun', name:'Fun (tattoos, trips)'}
+  {id:'fun', name:'Fun (trips, treats)'}
 ];
 const DEFAULTS = {
   version: 1,
@@ -624,6 +627,13 @@ document.addEventListener('click', (ev) => {
 });
 
 $('l-amt').addEventListener('input', updateAfter);
+$('h-paste').addEventListener('click', async () => {
+  let v = NaN;
+  try { const txt = await navigator.clipboard.readText(); const a = findAmounts(txt); v = a.length ? a[0] : num(txt); } catch (e) {}
+  go('log');
+  if (isFinite(v) && v > 0) { $('l-amt').value = Math.abs(v); updateAfter(); toast('Amount pasted. Pick a category and save.'); }
+  else { $('l-amt').value = ''; updateAfter(); toast('No amount copied. Type it in.'); $('l-amt').focus(); }
+});
 $('l-save').addEventListener('click', saveSpend);
 $('l-shot').addEventListener('change', (e) => { const f = e.target.files && e.target.files[0]; if (f) readShot(f); e.target.value=''; });
 $('l-paste').addEventListener('click', async () => {
