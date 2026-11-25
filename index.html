@@ -91,6 +91,7 @@ nav button.on{background:#fffdf7;border:2px solid var(--line);color:var(--ink);f
   <button class="wide" data-go="log" style="margin-bottom:12px">+ Log a spend</button>
   <div class="grid3" id="h-pockets" style="margin-bottom:12px"></div>
   <div class="card row" id="h-card" style="position:relative"></div>
+  <div class="card" id="h-up"><div class="row"><b>Coming up</b><span class="muted">tap &#10003; when done</span></div><div id="h-up-list"></div></div>
   <div class="card">
     <div class="row"><p style="font-weight:700;color:var(--caramel2);font-size:13px">Wedding savings</p><p class="muted" id="h-wed-note"></p></div>
     <p style="font-size:24px;font-weight:800;margin:2px 0 8px" id="h-wed"></p>
@@ -142,6 +143,7 @@ nav button.on{background:#fffdf7;border:2px solid var(--line);color:var(--ink);f
     <p class="muted" id="b-of" style="color:var(--caramel);margin-bottom:10px"></p>
     <div class="bar"><i id="b-bar"></i></div>
   </div>
+  <div class="card hidden" id="b-lean" style="background:var(--custard2)"><b>Lean months</b><p class="muted" style="margin-top:4px">Until February your weekly allowance is your whole budget. Category budgets start then. For now this just shows where the money went.</p></div>
   <h2>Everyday spending</h2>
   <div class="card" id="b-cats"></div>
   <h2>Paid on salary day</h2>
@@ -188,9 +190,10 @@ nav button.on{background:#fffdf7;border:2px solid var(--line);color:var(--ink);f
     <button class="small wide" id="s-sched-add" style="margin-top:8px">Add change</button>
   </div>
   <div class="card">
-    <b>Credit card bill</b>
+    <b>Credit card bills</b>
+    <div id="s-cards"></div>
     <div class="grid2" style="margin-top:8px"><input id="s-card-amt" inputmode="decimal" placeholder="€"><input id="s-card-date" type="date"></div>
-    <label style="display:flex;align-items:center;gap:10px;font-weight:700"><input type="checkbox" id="s-card-paid" style="width:24px;min-height:24px;height:24px"> Paid in full</label>
+    <button class="small wide" id="s-card-add" style="margin-top:8px">Add bill</button>
   </div>
   <div class="card">
     <b>Wedding savings</b>
@@ -255,10 +258,12 @@ const DEFAULTS = {
   schedule: [],
   entries: [],
   waitlist: [],
+  budgetsFrom: '',
   budgets: {groceries:0, eating:0, shopping:0, transport:0, classes:0, health:0, gifts:0},
   bills: [],
   billsPaid: {},
-  card: {amount:0, due:'', paid:true},
+  cardBills: [],
+  upcoming: [],
   wedding: {goal:0, saved:0}
 };
 
@@ -272,6 +277,10 @@ function load(){
 }
 let S = load();
 if (!S.startDate) { S.startDate = ymd(today()); }
+if (S.card) { if (S.card.due && !S.cardBills.length) S.cardBills.push({id:'b'+Date.now(), amount:S.card.amount, due:S.card.due, paid:!!S.card.paid}); delete S.card; }
+function nextBill(){ return S.cardBills.filter(b => !b.paid).sort((a,b) => a.due.localeCompare(b.due))[0] || null; }
+function billAfter(b){ return S.cardBills.filter(x => !x.paid && x.due > b.due).sort((a,c) => a.due.localeCompare(c.due))[0] || null; }
+const shortDate = (s) => parseYmd(s).toLocaleDateString('en-GB',{weekday:'short',day:'numeric',month:'short'});
 function save(){
   try { localStorage.setItem(KEY, JSON.stringify(S)); }
   catch (e) { toast('Could not save on this phone'); }
@@ -350,7 +359,8 @@ function showFlan(prefix, said){
   $(prefix+'-flan').textContent = said.text;
 }
 function waitDay(it){ return daysBetween(parseYmd(it.start), today()); }
-function billsAllTicked(){ const p = S.billsPaid[monthKey(today())] || []; return S.bills.length > 0 && S.bills.every(b => p.includes(b.id)); }
+function activeBills(){ const mk = monthKey(today()); return S.bills.filter(b => !b.from || b.from <= mk); }
+function billsAllTicked(){ const p = S.billsPaid[monthKey(today())] || []; const a = activeBills(); return a.length > 0 && a.every(b => p.includes(b.id)); }
 function flanSays(){
   if (!S.schedule.length) return {mood:'happy', text:'Hi! I\u2019m Flan. Tap the gear to set your weekly allowance, or import your setup file.'};
   const left = allowanceLeft(), t = ymd(today());
@@ -366,7 +376,7 @@ function flanSays(){
   const milestone = Math.floor(S.wedding.saved / 1000) * 1000;
   if (milestone >= 1000 && S.lastMilestoneSeen !== milestone) { S.lastMilestoneSeen = milestone; save(); return {mood:'proud', text:eur(milestone)+' saved. '+(S.partner ? S.partner+' is so lucky and doesn\u2019t even know it.' : 'Future-wedding-you is so lucky and doesn\u2019t even know it.')}; }
   if (billsAllTicked()) return {mood:'proud', text:'Every euro has a home. Adulting unlocked. Treat yourself to nothing.'};
-  if (!S.card.paid && S.card.due) { const d = daysBetween(today(), parseYmd(S.card.due)); if (d >= 0 && d <= 14) return {mood:'stare', text:d+' days until '+parseYmd(S.card.due).toLocaleDateString('en-GB',{day:'numeric',month:'short'})+'. I\u2019m counting. Are you counting? Be honest.'}; }
+  { const nb = nextBill(); if (nb) { const d = daysBetween(today(), parseYmd(nb.due)); if (d >= 0 && d <= 14) return {mood:'stare', text:(d === 0 ? 'Card bill is today' : d+(d===1?' day':' days')+' until the '+eur(nb.amount)+' card bill')+'. I\u2019m counting. Are you counting? Be honest.'}; } }
   const waiting = S.waitlist.find(it => waitDay(it) >= 1 && waitDay(it) < 7);
   if (waiting) return {mood:'stare', text:'Day '+waitDay(waiting)+'. The '+waiting.name.toLowerCase()+' isn\u2019t going anywhere. Neither am I, bestie.'};
   const streak = streakDays();
@@ -393,13 +403,17 @@ function renderHome(){
     const b = pocketBalance(p.id);
     return '<div class="card" style="margin:0;padding:12px"><p class="muted" style="font-weight:700">'+esc(p.name)+'</p><p style="font-size:20px;font-weight:800;margin:2px 0 6px">'+eur(b)+'</p><button class="small ghost wide" data-add="'+p.id+'">+ Add</button></div>';
   }).join('');
-  $('h-card').classList.toggle('hidden', !S.card.due && !S.card.amount);
-  if (S.card.paid) {
-    $('h-card').innerHTML = '<div><p class="muted" style="font-weight:700">Credit card</p><p style="font-size:20px;font-weight:800">Paid in full. Loop is dead.</p></div>';
+  const nb = nextBill();
+  $('h-card').classList.toggle('hidden', !S.cardBills.length);
+  if (!nb) {
+    $('h-card').innerHTML = '<div><p class="muted" style="font-weight:700">Credit card</p><p style="font-size:20px;font-weight:800">All paid in full. Loop is dead.</p></div>';
   } else {
-    const d = daysBetween(today(), parseYmd(S.card.due));
-    $('h-card').innerHTML = '<svg class="tail" width="26" height="56" viewBox="0 0 26 56" aria-hidden="true"><path d="M13 2 Q13 30 8 40 Q4 50 13 52 Q22 52 18 44" fill="none" stroke="#a8652b" stroke-width="6" stroke-linecap="round"/></svg><div><p class="muted" style="font-weight:700">Card bill · '+parseYmd(S.card.due).toLocaleDateString('en-GB',{weekday:'short',day:'numeric',month:'short'})+'</p><p style="font-size:24px;font-weight:800">'+eur(S.card.amount)+'</p><p class="muted">paid in full, then the loop is dead</p></div><div class="stat" style="min-width:64px"><b style="margin:0;font-size:24px">'+Math.max(0,d)+'</b><span class="muted">days</span></div>';
+    const d = daysBetween(today(), parseYmd(nb.due)), after = billAfter(nb);
+    $('h-card').innerHTML = '<svg class="tail" width="26" height="56" viewBox="0 0 26 56" aria-hidden="true"><path d="M13 2 Q13 30 8 40 Q4 50 13 52 Q22 52 18 44" fill="none" stroke="#a8652b" stroke-width="6" stroke-linecap="round"/></svg><div><p class="muted" style="font-weight:700">Card bill \u00b7 '+shortDate(nb.due)+'</p><p style="font-size:24px;font-weight:800">'+eur(nb.amount)+'</p><p class="muted">'+(after ? 'then '+eur(after.amount)+' on '+shortDate(after.due) : 'paid in full, then the loop is dead')+'</p><button class="small ghost" data-billpaid="'+nb.id+'" style="margin-top:8px">Mark as paid</button></div><div class="stat" style="min-width:64px"><b style="margin:0;font-size:24px">'+Math.max(0,d)+'</b><span class="muted">days</span></div>';
   }
+  const up = S.upcoming.filter(u => !u.done).sort((x,y) => x.date.localeCompare(y.date)).slice(0,4);
+  $('h-up').classList.toggle('hidden', !up.length);
+  $('h-up-list').innerHTML = up.map(u => '<div class="entry"><span><b style="font-weight:700">'+esc(u.name)+'</b><br><span class="muted">'+(u.date < ymd(today()) ? '<b style="color:#b5651d">overdue</b> \u00b7 ' : '')+shortDate(u.date)+(u.from ? ' \u00b7 '+esc(u.from) : '')+'</span></span><span style="display:flex;align-items:center;gap:8px">'+(u.amount ? '<b>'+eur(u.amount)+'</b>' : '')+'<button class="small ghost" data-updone="'+u.id+'" aria-label="Mark done" style="min-height:36px;padding:0 10px">\u2713</button></span></div>').join('');
   const w = S.wedding;
   $('h-wed').parentElement.classList.toggle('hidden', !w.goal);
   $('h-wed').innerHTML = eur(w.saved) + ' <span class="muted" style="font-size:15px">of ' + eur(w.goal) + '</span>';
@@ -485,20 +499,28 @@ function renderBudget(){
   $('b-month').textContent = now.toLocaleDateString('en-GB', {month:'long', year:'numeric'}) + ' · ' + daysBetween(now, nextFirst) + ' days left';
   const monthSpends = spendsIn(e => { const d = parseYmd(e.date); return d >= first && d < nextFirst; });
   let total = 0, spentAll = 0;
+  const lean = S.budgetsFrom && mk < S.budgetsFrom;
+  $('b-lean').classList.toggle('hidden', !lean);
   $('b-cats').innerHTML = CATS.filter(c => c.id !== 'fun').map(c => {
-    const budget = S.budgets[c.id] || 0, spent = sum(monthSpends.filter(e => e.category === c.id));
+    const budget = lean ? 0 : (S.budgets[c.id] || 0), spent = sum(monthSpends.filter(e => e.category === c.id));
+    if (lean) { spentAll += spent; return '<div style="padding:10px 0;border-bottom:1px solid #f6e3c8"><div class="row"><b style="font-weight:700">'+esc(c.name)+'</b><b>'+eur(spent)+' spent</b></div></div>'; }
     total += budget; spentAll += spent;
     const pct = budget ? Math.min(100, spent / budget * 100) : 0;
     return '<div style="padding:10px 0;border-bottom:1px solid #f6e3c8"><div class="row"><b style="font-weight:700">'+esc(c.name)+'</b><span class="muted"><b style="color:var(--ink);font-size:16px">'+eur(budget - spent)+'</b> left of '+eur(budget)+'</span></div><div class="bar" style="height:8px;margin-top:6px"><i class="'+(pct>=80?'warn':'')+'" style="width:'+pct+'%"></i></div></div>';
   }).join('') + '<div style="padding:10px 0"><div class="row"><b style="font-weight:700">Fun fund (pocket)</b><b>'+eur(pocketBalance('fun'))+'</b></div><p class="muted">Saved up first, then spent.</p></div>';
+  if (lean) {
+    let wk = mondayOf(first); total = 0; const allowSpent = sum(monthSpends.filter(e => e.pocket === 'allowance'));
+    while (wk < nextFirst) { if (wk >= first) total += weeklyAmount(wk); wk = new Date(wk.getTime() + 7*86400000); }
+    spentAll = allowSpent;
+  }
   $('b-left').textContent = eur(total - spentAll);
-  $('b-of').textContent = 'of ' + eur(total) + ' for everyday spending';
+  $('b-of').textContent = 'of ' + eur(total) + (lean ? ' in weekly allowances this month' : ' for everyday spending');
   $('b-bar').style.width = (total ? Math.max(0, Math.min(100, (total - spentAll) / total * 100)) : 0) + '%';
   const paid = S.billsPaid[mk] || [];
-  const notTicked = S.bills.filter(b => !paid.includes(b.id));
+  const notTicked = activeBills().filter(b => !paid.includes(b.id));
   showFlan('b', billsAllTicked() ? {mood:'proud', text:'Every euro has a home. Adulting unlocked. Treat yourself to nothing.'}
     : (paid.length && notTicked.length ? {mood:'stare', text: notTicked.slice(0,2).map(b => b.name).join(' and ') + (notTicked.length > 2 ? ' (and more)' : '') + (notTicked.length === 1 ? ' isn\u2019t' : ' aren\u2019t') + ' ticked yet. Just saying. I\u2019m not saying. But I said it.'} : null));
-  $('b-bills').innerHTML = S.bills.map(b => {
+  $('b-bills').innerHTML = activeBills().map(b => {
     const done = paid.includes(b.id);
     return '<button class="check'+(done?' done':'')+'" data-bill="'+b.id+'"><span class="box">'+(done?'✓':'')+'</span>'+esc(b.name)+'<span class="amt">'+eur(b.amount)+'</span></button>';
   }).join('');
@@ -542,16 +564,13 @@ function addWait(){
 function renderSettings(){
   $('s-sched').innerHTML = [...S.schedule].sort((a,b)=>a.from.localeCompare(b.from)).map((s,i) => '<div class="row" style="padding:6px 0"><span>From '+parseYmd(s.from).toLocaleDateString('en-GB',{day:'numeric',month:'short',year:'numeric'})+'</span><span><b>'+eur(s.amount)+'</b>/week <button class="small ghost" data-unsched="'+s.from+'" aria-label="Remove" style="min-height:32px;padding:0 8px">×</button></span></div>').join('');
   $('s-name').value = S.name || '';
-  $('s-card-amt').value = S.card.amount; $('s-card-date').value = S.card.due; $('s-card-paid').checked = !!S.card.paid;
+  $('s-cards').innerHTML = S.cardBills.slice().sort((a,b)=>a.due.localeCompare(b.due)).map(b => '<div class="row" style="padding:6px 0"><span>'+shortDate(b.due)+(b.paid?' \u00b7 paid':'')+'</span><span><b>'+eur(b.amount)+'</b> <button class="small ghost" data-unbillcard="'+b.id+'" aria-label="Remove" style="min-height:32px;padding:0 8px">\u00d7</button></span></div>').join('');
   $('s-wed-saved').value = S.wedding.saved; $('s-wed-goal').value = S.wedding.goal;
   $('s-budgets').innerHTML = CATS.filter(c => c.id !== 'fun').map(c => '<label for="bud-'+c.id+'">'+esc(c.name)+' (€/month)</label><input id="bud-'+c.id+'" inputmode="decimal" value="'+(S.budgets[c.id]||0)+'">').join('');
   $('s-bills').innerHTML = S.bills.map(b => '<div class="row" style="padding:6px 0"><span>'+esc(b.name)+'</span><span><b>'+eur(b.amount)+'</b> <button class="small ghost" data-unbill="'+b.id+'" aria-label="Remove" style="min-height:32px;padding:0 8px">×</button></span></div>').join('');
 }
 function saveSettings(){
   S.name = $('s-name').value.trim();
-  const ca = num($('s-card-amt').value); if (isFinite(ca)) S.card.amount = ca;
-  if ($('s-card-date').value) S.card.due = $('s-card-date').value;
-  S.card.paid = $('s-card-paid').checked;
   const ws = num($('s-wed-saved').value), wg = num($('s-wed-goal').value);
   if (isFinite(ws)) S.wedding.saved = ws; if (isFinite(wg) && wg > 0) S.wedding.goal = wg;
   CATS.forEach(c => { const el = $('bud-'+c.id); if (el) { const v = num(el.value); if (isFinite(v)) S.budgets[c.id] = v; } });
@@ -596,6 +615,9 @@ document.addEventListener('click', (ev) => {
     if (it) { S.waitlist = S.waitlist.filter(x => x.id !== it.id); save(); L = {pocket:'allowance', cat:'shopping'}; go('log'); $('l-amt').value = it.price; $('l-note').value = it.name; updateAfter(); }
     return;
   }
+  if (d.billpaid) { const bb = S.cardBills.find(x => x.id === d.billpaid); if (bb) { bb.paid = true; save(); toast('Paid in full. Proud of you.'); } return renderHome(); }
+  if (d.updone) { const u = S.upcoming.find(x => x.id === d.updone); if (u) { u.done = true; save(); } return renderHome(); }
+  if (d.unbillcard) { S.cardBills = S.cardBills.filter(x => x.id !== d.unbillcard); save(); return renderSettings(); }
   if (d.remind) { const it = S.waitlist.find(x => x.id === d.remind); if (it) downloadIcs(it); return; }
   if (d.unsched) { S.schedule = S.schedule.filter(s => s.from !== d.unsched); save(); return renderSettings(); }
   if (d.unbill) { S.bills = S.bills.filter(b => b.id !== d.unbill); save(); return renderSettings(); }
@@ -624,6 +646,11 @@ $('s-sched-add').addEventListener('click', () => {
   if (!dt || !isFinite(a)) { toast('Pick a date and an amount'); return; }
   S.schedule = S.schedule.filter(s => s.from !== dt).concat({from:dt, amount:a}); save(); renderSettings();
 });
+$('s-card-add').addEventListener('click', () => {
+  const a = num($('s-card-amt').value), dt = $('s-card-date').value;
+  if (!dt || !isFinite(a)) { toast('Add an amount and a date'); return; }
+  S.cardBills.push({id:uid(), amount:a, due:dt, paid:false}); save(); $('s-card-amt').value=''; $('s-card-date').value=''; renderSettings();
+});
 $('s-bill-add').addEventListener('click', () => {
   const n = $('s-bill-name').value.trim(), a = num($('s-bill-amt').value);
   if (!n || !isFinite(a)) { toast('Add a name and an amount'); return; }
@@ -637,7 +664,8 @@ $('s-export').addEventListener('click', () => {
 $('s-import-btn').addEventListener('click', () => $('s-import').click());
 $('s-import').addEventListener('change', async (e) => {
   const f = e.target.files && e.target.files[0]; if (!f) return;
-  try { const data = JSON.parse(await f.text()); if (!data || !Array.isArray(data.entries)) throw 0; S = Object.assign(structuredClone(DEFAULTS), data); save(); toast('Backup restored'); go('home'); }
+  try { const data = JSON.parse(await f.text()); if (!data || !Array.isArray(data.entries)) throw 0; const keep = (!data.entries.length && S.entries.length) ? {entries:S.entries, waitlist:S.waitlist, billsPaid:S.billsPaid} : {};
+    S = Object.assign(structuredClone(DEFAULTS), data, keep); delete S.card; save(); toast(keep.entries ? 'Setup loaded. Your logs are kept.' : 'Backup restored'); go('home'); }
   catch (err) { toast('That file isn’t a Flan backup'); }
 });
 
