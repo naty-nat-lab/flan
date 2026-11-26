@@ -221,7 +221,7 @@ nav button.on{background:#fffdf7;border:2px solid var(--line);color:var(--ink);f
   </div>
   <div class="card">
     <b>Google Sheet sync (optional)</b>
-    <p class="muted" style="margin:4px 0 8px">Sends your data to your own private Google Sheet after each change. The link and key stay on this phone only.</p>
+    <p class="muted" style="margin:4px 0 8px">Sends your data to your own private Google Sheet after each change, and picks up plan updates from its Setup tab when you open Flan. The link and key stay on this phone only.</p>
     <label for="s-sync-url">Apps Script web app link</label>
     <input id="s-sync-url" placeholder="https://script.google.com/macros/s/.../exec" autocomplete="off" autocapitalize="off">
     <label for="s-sync-key">Secret key (same as in the script)</label>
@@ -316,6 +316,29 @@ const SYNC_KEY = 'flanSync.v1';
 function syncCfg(){ try { return JSON.parse(localStorage.getItem(SYNC_KEY) || '{}'); } catch (e) { return {}; } }
 function setSyncCfg(c){ try { localStorage.setItem(SYNC_KEY, JSON.stringify(c)); } catch (e) {} }
 let syncTimer = null;
+const PLAN_KEYS = ['name','partner','schedule','budgetsFrom','budgets','bills','cardBills','upcoming','wedding'];
+function mergeSetup(setup){
+  const doneIds = (S.upcoming || []).filter(u => u.done).map(u => u.id);
+  const paidIds = (S.cardBills || []).filter(b => b.paid).map(b => b.id);
+  const wedSaved = (S.wedding || {}).saved || 0;
+  PLAN_KEYS.forEach(k => { if (setup[k] !== undefined) S[k] = setup[k]; });
+  (S.upcoming || []).forEach(u => { if (doneIds.includes(u.id)) u.done = true; });
+  (S.cardBills || []).forEach(b => { if (paidIds.includes(b.id)) b.paid = true; });
+  if (S.wedding) S.wedding.saved = Math.max(S.wedding.saved || 0, wedSaved);
+}
+async function pullSetup(manual){
+  const c = syncCfg();
+  if (!c.url || !c.key) return;
+  try {
+    const r = await fetch(c.url + '?key=' + encodeURIComponent(c.key), {method:'GET'});
+    const data = JSON.parse(await r.text());
+    if (!data || !data.setup || !data.version) { if (manual) toast('No plan in the sheet yet'); return; }
+    if (data.version === c.planVersion) { if (manual) toast('Plan is up to date'); return; }
+    mergeSetup(data.setup); c.planVersion = data.version; setSyncCfg(c);
+    save(); toast('Plan updated from your sheet');
+    const v = VIEWS.find(x => !$('v-'+x).classList.contains('hidden')) || 'home'; go(v);
+  } catch (e) { if (manual) toast('Couldn\u2019t get the plan (offline?)'); }
+}
 function scheduleSync(){ const c = syncCfg(); if (!c.url || !c.key) return; clearTimeout(syncTimer); syncTimer = setTimeout(syncNow, 3000); }
 async function syncNow(manual){
   const c = syncCfg();
@@ -740,7 +763,7 @@ $('sh-ok').addEventListener('click', () => {
   save(); closeSheet(); renderHome();
 });
 $('s-save').addEventListener('click', saveSettings);
-$('s-sync-now').addEventListener('click', () => { setSyncCfg(Object.assign(syncCfg(), {url:$('s-sync-url').value.trim(), key:$('s-sync-key').value.trim()})); syncNow(true); });
+$('s-sync-now').addEventListener('click', async () => { setSyncCfg(Object.assign(syncCfg(), {url:$('s-sync-url').value.trim(), key:$('s-sync-key').value.trim()})); await pullSetup(true); syncNow(true); });
 $('s-sync-off').addEventListener('click', () => { setSyncCfg({}); renderSync(); toast('Sync is off'); });
 $('s-sched-add').addEventListener('click', () => {
   const dt = $('s-sched-date').value, a = num($('s-sched-amt').value);
@@ -786,6 +809,8 @@ $('s-import').addEventListener('change', async (e) => {
 })();
 
 $('nav-flan').innerHTML = miniSvg(24);
+pullSetup(false);
+document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') pullSetup(false); });
 if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(() => {});
 </script>
 </body>
