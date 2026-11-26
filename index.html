@@ -94,7 +94,7 @@ nav button.on{background:#fffdf7;border:2px solid var(--line);color:var(--ink);f
   </div>
   <div class="grid3" id="h-pockets" style="margin-bottom:12px"></div>
   <div class="card row" id="h-card" style="position:relative"></div>
-  <div class="card" id="h-up"><div class="row"><b>Coming up</b><span class="muted">tap &#10003; when done</span></div><div id="h-up-list"></div></div>
+  <div class="card" id="h-up"><div class="row"><b>Coming up</b><span class="muted">tap &#10003; when done</span></div><div id="h-up-list"></div><button class="small ghost wide" data-go="timeline" style="margin-top:10px">See the full timeline</button></div>
   <div class="card">
     <div class="row"><p style="font-weight:700;color:var(--caramel2);font-size:13px">Wedding savings</p><p class="muted" id="h-wed-note"></p></div>
     <p style="font-size:24px;font-weight:800;margin:2px 0 8px" id="h-wed"></p>
@@ -178,6 +178,13 @@ nav button.on{background:#fffdf7;border:2px solid var(--line);color:var(--ink);f
   </div>
 </section>
 
+<!-- TIMELINE -->
+<section id="v-timeline" class="hidden">
+  <div class="row" style="margin-bottom:12px"><h1>Timeline</h1><button class="small ghost" data-go="home">Done</button></div>
+  <p class="muted" style="margin-bottom:10px">Tap an item to tick it off or undo it.</p>
+  <div id="t-list"></div>
+</section>
+
 <!-- SETTINGS -->
 <section id="v-settings" class="hidden">
   <div class="row" style="margin-bottom:12px"><h1>Settings</h1><button class="small ghost" data-go="home">Done</button></div>
@@ -211,6 +218,21 @@ nav button.on{background:#fffdf7;border:2px solid var(--line);color:var(--ink);f
     <div id="s-bills"></div>
     <div class="grid2" style="margin-top:8px"><input id="s-bill-name" placeholder="Name"><input id="s-bill-amt" inputmode="decimal" placeholder="€"></div>
     <button class="small wide" id="s-bill-add" style="margin-top:8px">Add item</button>
+  </div>
+  <div class="card">
+    <b>Google Sheet sync (optional)</b>
+    <p class="muted" style="margin:4px 0 8px">Sends your data to your own private Google Sheet after each change. The link and key stay on this phone only.</p>
+    <label for="s-sync-url">Apps Script web app link</label>
+    <input id="s-sync-url" placeholder="https://script.google.com/macros/s/.../exec" autocomplete="off" autocapitalize="off">
+    <label for="s-sync-key">Secret key (same as in the script)</label>
+    <input id="s-sync-key" type="password" autocomplete="off" autocapitalize="off">
+    <div class="grid2" style="margin-top:8px"><button class="small" id="s-sync-now">Save &amp; sync now</button><button class="small ghost" id="s-sync-off">Turn off</button></div>
+    <p class="muted" id="s-sync-status" style="margin-top:8px"></p>
+  </div>
+  <div class="card">
+    <b>Check-in report</b>
+    <p class="muted" style="margin:4px 0 8px">A short summary you can send to your assistant. Nothing is sent unless you choose where it goes.</p>
+    <div class="grid2"><button class="small" data-report="week">This week</button><button class="small" data-report="month">This month</button></div>
   </div>
   <div class="card">
     <b>Backup</b>
@@ -287,6 +309,23 @@ const shortDate = (s) => parseYmd(s).toLocaleDateString('en-GB',{weekday:'short'
 function save(){
   try { localStorage.setItem(KEY, JSON.stringify(S)); }
   catch (e) { toast('Could not save on this phone'); }
+  scheduleSync();
+}
+// ---------- optional Google Sheet sync (settings live only on this phone) ----------
+const SYNC_KEY = 'flanSync.v1';
+function syncCfg(){ try { return JSON.parse(localStorage.getItem(SYNC_KEY) || '{}'); } catch (e) { return {}; } }
+function setSyncCfg(c){ try { localStorage.setItem(SYNC_KEY, JSON.stringify(c)); } catch (e) {} }
+let syncTimer = null;
+function scheduleSync(){ const c = syncCfg(); if (!c.url || !c.key) return; clearTimeout(syncTimer); syncTimer = setTimeout(syncNow, 3000); }
+async function syncNow(manual){
+  const c = syncCfg();
+  if (!c.url || !c.key) { if (manual) toast('Add your sync link and key first'); return; }
+  if (!/^https:\/\/script\.google\.com\/macros\/s\/[\w-]+\/exec$/.test(c.url)) { if (manual) toast('That link doesn\u2019t look like an Apps Script web app link'); return; }
+  try {
+    await fetch(c.url, {method:'POST', mode:'no-cors', headers:{'Content-Type':'text/plain;charset=utf-8'}, body: JSON.stringify({key:c.key, state:S})});
+    c.last = new Date().toISOString(); setSyncCfg(c);
+    if (manual) { toast('Sent to your Google Sheet'); renderSettings(); }
+  } catch (e) { if (manual) toast('Couldn\u2019t sync (offline?). It will retry on your next change.'); }
 }
 
 // ---------- helpers ----------
@@ -564,7 +603,55 @@ function addWait(){
 }
 
 // ---------- render: settings ----------
+function renderTimeline(){
+  const items = S.upcoming.slice().sort((a,b) => a.date.localeCompare(b.date));
+  let lastMonth = '';
+  $('t-list').innerHTML = items.length ? items.map(u => {
+    const m = parseYmd(u.date).toLocaleDateString('en-GB', {month:'long', year:'numeric'});
+    const head = m !== lastMonth ? '<h2>'+m+'</h2>' : ''; lastMonth = m;
+    const overdue = !u.done && u.date < ymd(today());
+    return head + '<button class="check'+(u.done?' done':'')+'" data-tl="'+u.id+'" style="'+(u.done?'opacity:.55':'')+'"><span class="box">'+(u.done?'\u2713':'')+'</span><span style="flex:1"><b style="font-weight:700">'+esc(u.name)+'</b><br><span class="muted">'+(overdue?'<b style="color:#b5651d">overdue</b> \u00b7 ':'')+shortDate(u.date)+(u.from?' \u00b7 '+esc(u.from):'')+'</span></span><span class="amt">'+(u.amount?eur(u.amount):'')+'</span></button>';
+  }).join('') : '<p class="muted">No timeline yet. Import your setup file in Settings.</p>';
+}
+function buildReport(period){
+  const t = today(), mon = mondayOf(t);
+  const from = period === 'week' ? mon : new Date(t.getFullYear(), t.getMonth(), 1);
+  const inP = (e) => parseYmd(e.date) >= from && parseYmd(e.date) <= t;
+  const spends = S.entries.filter(e => e.type === 'spend' && inP(e));
+  const saved = S.entries.filter(e => e.type === 'saved' && inP(e));
+  const slips = S.entries.filter(e => e.slip && inP(e));
+  const L = [];
+  L.push('Flan check-in, ' + (period === 'week' ? 'week of ' + mon.toLocaleDateString('en-GB',{day:'numeric',month:'short'}) : t.toLocaleDateString('en-GB',{month:'long',year:'numeric'})) + ' (as of ' + shortDate(ymd(t)) + ')');
+  if (period === 'week') L.push('Allowance: ' + eur(weeklyAmount(mon) - allowanceLeft()) + ' spent of ' + eur(weeklyAmount(mon)) + ', ' + eur(allowanceLeft()) + ' left');
+  L.push('Spent in total: ' + eur(sum(spends)) + ' (' + spends.length + (spends.length === 1 ? ' entry)' : ' entries)'));
+  const byCat = {}; spends.forEach(e => byCat[e.category] = (byCat[e.category]||0) + e.amount);
+  Object.keys(byCat).sort((a,b) => byCat[b]-byCat[a]).forEach(c => L.push('  ' + (catName(c)||c) + ': ' + eur(byCat[c])));
+  L.push('Slips: ' + eur(sum(slips)) + (slips.length ? ' (' + slips.map(e => (e.note||catName(e.category)) + ' ' + eur(e.amount)).join(', ') + ')' : ''));
+  L.push('Not spent (kept): ' + eur(sum(saved)) + (saved.length ? ' (' + saved.map(e => e.note + ' ' + eur(e.amount)).join(', ') + ')' : ''));
+  L.push('Streak: ' + streakDays() + (streakDays() === 1 ? ' day' : ' days'));
+  L.push('Pockets: Oops ' + eur(pocketBalance('oops')) + ', Health ' + eur(pocketBalance('health')) + ', Fun fund ' + eur(pocketBalance('fun')));
+  if (S.waitlist.length) L.push('Wait list: ' + S.waitlist.map(w => w.name + ' ' + eur(w.price) + ' (day ' + Math.min(7, waitDay(w)) + ')').join(', '));
+  const nb = nextBill(); L.push('Card: ' + (nb ? eur(nb.amount) + ' due ' + shortDate(nb.due) : 'all bills paid'));
+  const paid = S.billsPaid[monthKey(t)] || []; const ab = activeBills();
+  if (ab.length) L.push('Salary-day checklist: ' + ab.filter(b => paid.includes(b.id)).length + '/' + ab.length + ' ticked' + (ab.some(b => !paid.includes(b.id)) ? ' (open: ' + ab.filter(b => !paid.includes(b.id)).map(b => b.name).join(', ') + ')' : ''));
+  if (S.wedding.goal) L.push('Wedding savings: ' + eur(S.wedding.saved) + ' of ' + eur(S.wedding.goal));
+  const od = S.upcoming.filter(u => !u.done && u.date < ymd(t));
+  if (od.length) L.push('Overdue timeline items: ' + od.map(u => u.name).join('; '));
+  if (spends.length) { L.push(''); L.push('Entries:'); spends.forEach(e => L.push('  ' + e.date + ' ' + eur(e.amount) + ' ' + pocketName(e.pocket) + ' / ' + (catName(e.category)||'') + (e.note ? ' / ' + e.note : '') + (e.slip ? ' / SLIP' : ''))); }
+  return L.join('\n');
+}
+async function shareReport(period){
+  const text = buildReport(period);
+  try { if (navigator.share) { await navigator.share({title:'Flan check-in', text}); return; } } catch (e) { if (e && e.name === 'AbortError') return; }
+  try { await navigator.clipboard.writeText(text); toast('Report copied. Paste it in the chat.'); } catch (e) { toast('Could not share. Try again.'); }
+}
+function renderSync(){
+  const c = syncCfg();
+  $('s-sync-url').value = c.url || ''; $('s-sync-key').value = c.key || '';
+  $('s-sync-status').textContent = c.url ? (c.last ? 'Last sent: ' + new Date(c.last).toLocaleString('en-GB', {day:'numeric', month:'short', hour:'2-digit', minute:'2-digit'}) : 'Not sent yet') : 'Off';
+}
 function renderSettings(){
+  renderSync();
   $('s-sched').innerHTML = [...S.schedule].sort((a,b)=>a.from.localeCompare(b.from)).map((s,i) => '<div class="row" style="padding:6px 0"><span>From '+parseYmd(s.from).toLocaleDateString('en-GB',{day:'numeric',month:'short',year:'numeric'})+'</span><span><b>'+eur(s.amount)+'</b>/week <button class="small ghost" data-unsched="'+s.from+'" aria-label="Remove" style="min-height:32px;padding:0 8px">×</button></span></div>').join('');
   $('s-name').value = S.name || '';
   $('s-cards').innerHTML = S.cardBills.slice().sort((a,b)=>a.due.localeCompare(b.due)).map(b => '<div class="row" style="padding:6px 0"><span>'+shortDate(b.due)+(b.paid?' \u00b7 paid':'')+'</span><span><b>'+eur(b.amount)+'</b> <button class="small ghost" data-unbillcard="'+b.id+'" aria-label="Remove" style="min-height:32px;padding:0 8px">\u00d7</button></span></div>').join('');
@@ -586,11 +673,11 @@ function openSheet(pid){ sheetPocket = pid; $('sh-title').textContent = 'Add mon
 function closeSheet(){ $('sheet').classList.add('hidden'); }
 
 // ---------- navigation ----------
-const VIEWS = ['home','log','budget','wait','settings'];
+const VIEWS = ['home','log','budget','wait','settings','timeline'];
 function go(v){
   VIEWS.forEach(x => $('v-'+x).classList.toggle('hidden', x !== v));
   document.querySelectorAll('#nav button').forEach(b => b.classList.toggle('on', b.dataset.go === v));
-  ({home:renderHome, log:renderLog, budget:renderBudget, wait:renderWait, settings:renderSettings})[v]();
+  ({home:renderHome, log:renderLog, budget:renderBudget, wait:renderWait, settings:renderSettings, timeline:renderTimeline})[v]();
   window.scrollTo(0,0);
 }
 
@@ -621,6 +708,8 @@ document.addEventListener('click', (ev) => {
   if (d.billpaid) { const bb = S.cardBills.find(x => x.id === d.billpaid); if (bb) { bb.paid = true; save(); toast('Paid in full. Proud of you.'); } return renderHome(); }
   if (d.updone) { const u = S.upcoming.find(x => x.id === d.updone); if (u) { u.done = true; save(); } return renderHome(); }
   if (d.unbillcard) { S.cardBills = S.cardBills.filter(x => x.id !== d.unbillcard); save(); return renderSettings(); }
+  if (d.tl) { const u = S.upcoming.find(x => x.id === d.tl); if (u) { u.done = !u.done; save(); } return renderTimeline(); }
+  if (d.report) return shareReport(d.report);
   if (d.remind) { const it = S.waitlist.find(x => x.id === d.remind); if (it) downloadIcs(it); return; }
   if (d.unsched) { S.schedule = S.schedule.filter(s => s.from !== d.unsched); save(); return renderSettings(); }
   if (d.unbill) { S.bills = S.bills.filter(b => b.id !== d.unbill); save(); return renderSettings(); }
@@ -651,6 +740,8 @@ $('sh-ok').addEventListener('click', () => {
   save(); closeSheet(); renderHome();
 });
 $('s-save').addEventListener('click', saveSettings);
+$('s-sync-now').addEventListener('click', () => { setSyncCfg(Object.assign(syncCfg(), {url:$('s-sync-url').value.trim(), key:$('s-sync-key').value.trim()})); syncNow(true); });
+$('s-sync-off').addEventListener('click', () => { setSyncCfg({}); renderSync(); toast('Sync is off'); });
 $('s-sched-add').addEventListener('click', () => {
   const dt = $('s-sched-date').value, a = num($('s-sched-amt').value);
   if (!dt || !isFinite(a)) { toast('Pick a date and an amount'); return; }
@@ -674,8 +765,11 @@ $('s-export').addEventListener('click', () => {
 $('s-import-btn').addEventListener('click', () => $('s-import').click());
 $('s-import').addEventListener('change', async (e) => {
   const f = e.target.files && e.target.files[0]; if (!f) return;
+  e.target.value = '';
   try { const data = JSON.parse(await f.text()); if (!data || !Array.isArray(data.entries)) throw 0; const keep = (!data.entries.length && S.entries.length) ? {entries:S.entries, waitlist:S.waitlist, billsPaid:S.billsPaid} : {};
-    S = Object.assign(structuredClone(DEFAULTS), data, keep); delete S.card; save(); toast(keep.entries ? 'Setup loaded. Your logs are kept.' : 'Backup restored'); go('home'); }
+    const doneIds = (S.upcoming || []).filter(u => u.done).map(u => u.id);
+    S = Object.assign(structuredClone(DEFAULTS), data, keep); delete S.card;
+    (S.upcoming || []).forEach(u => { if (doneIds.includes(u.id)) u.done = true; }); save(); toast(keep.entries ? 'Setup loaded. Your logs are kept.' : 'Backup restored'); go('home'); }
   catch (err) { toast('That file isn’t a Flan backup'); }
 });
 

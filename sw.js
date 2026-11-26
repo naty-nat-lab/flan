@@ -1,5 +1,5 @@
 // Flan offline cache. Bump VERSION when you upload a new index.html.
-const VERSION = 'flan-v5';
+const VERSION = 'flan-v7';
 const FILES = ['./', './index.html', './manifest.webmanifest', './apple-touch-icon.png', './icon-192.png', './icon-512.png'];
 self.addEventListener('install', (e) => { e.waitUntil(caches.open(VERSION).then((c) => c.addAll(FILES))); self.skipWaiting(); });
 self.addEventListener('activate', (e) => {
